@@ -368,7 +368,15 @@ transformed parameters {
         }
       }
     }
-    
+  
+  // B.2: Modeled cases accounting for tfrac (for reporting)
+  for (i in 1:M) {
+    tfrac_modeled_cases[i] = 0;
+  }
+  //now accumulate
+  for (i in 1:K1) {
+    tfrac_modeled_cases[map_obs_loctime_obs[i]] += tfrac[i] * location_cases[map_obs_loctime_loc[i]];
+  }
     
   // ---- Part C: Modeled number of cases for output summary location-periods ----
   
