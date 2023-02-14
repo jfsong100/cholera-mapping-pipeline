@@ -2,13 +2,14 @@
 // 
 // The aim of the model is to produce inference on grid-level cholera rates.
 //
-
+// merge mapping_model_inference.stan and mapping_model_generate.stan 02/14/2023
 
 data {
   
   // Data sizes
   int <lower=1> N;     // length of non-NA grid cells (space and time)
   int <lower=1> smooth_grid_N; // size of smooth grid (# non-NA cells * (timesteps+1))
+  int <lower=1> N_space; // [from generate] length of non-NA grid cells (space only)
   int <lower=1> N_edges;       // number of edges between grid cells
   int <lower=1> T;     // number of time slices
   int <lower=0> L;     // number of location periods (space and time)
@@ -53,6 +54,8 @@ data {
   int <lower=0, upper=N> map_loc_grid_grid[K2];      // the gridcell side of the mapping from locations to gridcells
   int <lower=0, upper=smooth_grid_N> map_smooth_grid[N];    // vector with repeating smooth_grid_N indexes repeating 1:N
   real <lower=0, upper=1> map_loc_grid_sfrac[K2];    // the population-weighed location spatial fraction covered by each gridcell
+  int <lower=1, upper=N_space> map_spacetime_space_grid[N];  // [from generate] map from spacextime grid cells to space-only grid
+  
   
   // Time slices
   vector<lower=0, upper=1>[N*do_time_slice_effect] has_data_year;
@@ -73,6 +76,27 @@ data {
   
   // Debug
   int debug;
+  
+  // For output summaries [from generate]
+  //  Data sizes
+  int <lower=0> L_output; // number of location periods (space and time)
+  int <lower=0> L_output_space; // number of location periods (space and time)
+  int <lower=0> M_output; // number of location periods (space and time)
+  int <lower=L_output> K1_output; // the length of the mapping of observations to location periods and times
+  int <lower=L_output> K2_output; // the length of the mapping of location periods to gridcells
+  //  Mappings
+  int <lower=0, upper=M_output> map_output_obs_loctime_obs[K1_output]; // The observation side of the mapping from observations to location/times
+  int <lower=0, upper=L_output> map_output_obs_loctime_loc[K1_output]; // The location side of the mapping from observations to location/times
+  int <lower=0, upper=L_output> map_output_loc_grid_loc[K2_output]; // the location side of the mapping from locations to gridcells
+  int <lower=0, upper=N> map_output_loc_grid_grid[K2_output]; // the gridcell side of the mapping from locations to gridcells
+  int <lower=0, upper=L_output_space> map_output_loctime_loc[L_output]; // Map from space x time location ids to space only location
+  int <lower=0> map_output_loc_adminlev[L_output_space]; // Map from space location ids to admin level
+  real<lower=0> map_loc_grid_sfrac_output[K2_output];
+  //  Population at risk 
+  int<lower=0> N_cat;    // Number of incidence categories. For now there are no checks whether categories are mutually exclusive or not
+  real<lower=0> risk_cat_low[N_cat];    // lower bound of categories
+  real<lower=0> risk_cat_high[N_cat];   // upper bound of categories
+  
 }
 
 transformed data {
@@ -80,6 +104,7 @@ transformed data {
   real log_meanrate = log(meanrate);
   real<lower=0> weights[M*(1-do_censoring)*use_weights];    // a function of the expected offset for each observation used to downwight the likelihood
   real <lower=0> pop_loctimes[L];        // pre-computed population in each location period
+  int N_output_adminlev = max(map_output_loc_adminlev)+1;    // [from generate] number of admin levels in output
   real <lower=0, upper=1> tfrac_censoring[K1]; // tfrac accounting for censoring
   
   for (i in 1:K1) {
@@ -133,6 +158,11 @@ parameters {
   // Covariate effects
   vector[ncovar] betas;
   
+}
+
+generated quantities {
+  
+
 }
 
 transformed parameters {
