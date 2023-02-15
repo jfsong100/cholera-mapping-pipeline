@@ -160,15 +160,7 @@ parameters {
   
 }
 
-transformed parameters {
-  
-  vector[T*do_time_slice_effect] eta;    // temporal random effects
-  vector[M] modeled_cases;        // expected number of cases for each observation
-  real std_dev_w = exp(log_std_dev_w);    // sd of spatial random effects
-  vector[N] grid_cases;       // cases modeled in each gridcell and time point
-  real previous_debugs = 0;
-  real sigma_eta_val;        // value of sigma_eta. This is either fixed to sigma_eta_scale if do_infer_sd_eta==0, or sigma_eta otherwise
-  
+generated quantities {
   // [from generate]
   real<lower=0> tfrac_modeled_cases[M]; //expected number of cases for each observation
   real log_lik[M]; // log-likelihood of observations
@@ -196,6 +188,19 @@ transformed parameters {
     pop_loctimes_output[map_output_loc_grid_loc[i]] += pop[map_output_loc_grid_grid[i]] * map_loc_grid_sfrac_output[i];
   }  
   // [end from generate]
+
+
+}
+
+
+transformed parameters {
+  
+  vector[T*do_time_slice_effect] eta;    // temporal random effects
+  vector[M] modeled_cases;        // expected number of cases for each observation
+  real std_dev_w = exp(log_std_dev_w);    // sd of spatial random effects
+  vector[N] grid_cases;       // cases modeled in each gridcell and time point
+  real previous_debugs = 0;
+  real sigma_eta_val;        // value of sigma_eta. This is either fixed to sigma_eta_scale if do_infer_sd_eta==0, or sigma_eta otherwise
   
   if (do_infer_sd_eta == 1) {
     sigma_eta_val = sigma_eta[1];
