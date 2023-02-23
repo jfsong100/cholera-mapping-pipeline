@@ -342,181 +342,10 @@ transformed parameters {
   }
 }
 
-generated quantities {
-   // This block is from generate stan model
-   real log_lik[M]; // log-likelihood of observations
-   vector[N_space] space_grid_rates; // mean annual incidence rates at grid level
-   
-  // Outputs at given admin levels
-  vector<lower=0>[L_output] location_cases_output; //cases modeled in each (temporal) location.
-  vector<lower=0>[L_output] location_rates_output; //rates modeled in each (temporal) location.
-  vector<lower=0>[L_output_space] location_total_cases_output; //cases modeled in each location across time slices.
-  vector<lower=0>[L_output_space] location_total_rates_output; //rates modeled in each location  across time slices.
-  matrix<lower=0>[L_output_space, N_cat] location_risk_cat_num;    // number of people in each location in each risk category
-  matrix<lower=0>[L_output_space, N_cat] location_risk_cat_prop;    // proportion of people in each location in each risk category
-  int<lower=0> location_risk_cat[L_output_space] ;    // risk category for each space location
-  matrix<lower=0>[N_cat, N_output_adminlev] tot_pop_risk;    // total number of people in admin units in each risk category by admin level
-  
-  // Data outputs to return (same for all samples)
-  real <lower=0> pop_loctimes_output[L_output];    // population in each output location period
-  real <lower=0> pop_loc_output[L_output_space];   // population in each output location (space only)
-  
-  for (i in 1:L_output) {
-    pop_loctimes_output[i] = 0;
-  }
-  
-  for (i in 1:K2_output) {
-    pop_loctimes_output[map_output_loc_grid_loc[i]] += pop[map_output_loc_grid_grid[i]] * map_loc_grid_sfrac_output[i];
-  }
-  
-  // B.2: Modeled cases accounting for tfrac (for reporting)
-  for (i in 1:M) {
-    tfrac_modeled_cases[i] = 0;
-  }
-  //now accumulate
-  for (i in 1:K1) {
-    tfrac_modeled_cases[map_obs_loctime_obs[i]] += tfrac[i] * location_cases[map_obs_loctime_loc[i]];
-  }
-  // ---  End Part B ---
-  
-  // ---- Part C: Modeled number of cases for output summary location-periods ----
-  
-  for(i in 1:L_output){
-    location_cases_output[i] = 0;
-  }
-  
-  for(i in 1:L_output_space){
-    location_total_cases_output[i] = 0;
-  }
-  
-  for(i in 1:K2_output){
-    location_cases_output[map_output_loc_grid_loc[i]] += grid_cases[map_output_loc_grid_grid[i]] * map_loc_grid_sfrac_output[i];
-  }
-  
-  {
-    // This block computes the total cases and mean rates across time
-    real tot_loc_pop[L_output_space]; // store the total exposed population across time slices
-    
-    for (i in 1:L_output_space) {
-      tot_loc_pop[i] = 0;
-    }
-    
-    // Compute total cases and total exposed population
-    for (i in 1:L_output) {
-      location_total_cases_output[map_output_loctime_loc[i]] += location_cases_output[i];
-      tot_loc_pop[map_output_loctime_loc[i]] += pop_loctimes_output[i];
-    }
-    
-    // Compute mean rates at each location
-    for (i in 1:L_output_space) {
-      location_total_rates_output[i] = location_total_cases_output[i]/tot_loc_pop[i];
-    }
-    
-    // Compute average population in each output location (space only)
-    for (i in 1:L_output_space) {
-      pop_loc_output[i] = tot_loc_pop[i]/T;
-    }
-  }
-  
-  for(i in 1:L_output){
-    location_rates_output[i] = location_cases_output[i]/pop_loctimes_output[i];
-  }
-  // ---  End Part C ---
-  
-  // ---- Part D: People at risk ----
-  // This block computes the number of people at risk
-  
-  // First comput mean rates at grid level
-  for (i in 1:N_space) {
-    space_grid_rates[i] = 0;
-  }
-  
-  for (i in 1:N) {
-    //  We know that there are T time slices
-    space_grid_rates[map_spacetime_space_grid[i]] += exp(log_lambda[i])/T;
-  }
-  
-  {
-    // Loop over space output locations and compute numbers at risk
-    // Since there are T pixel/location intersections in K2_output we only add in the first.
-    int check_done[N_space, L_output_space];
-    
-    for (i in 1:N_space) {
-      for (j in 1:L_output_space) {
-        check_done[i, j] = 0;
-      }
-    }
-    
-    // Initialize risk cat num
-    for (i in 1:L_output_space) {
-      for (j in 1:N_cat) {
-        location_risk_cat_num[i, j] = 0;
-      }
-    }
-    
-    for (i in 1:K2_output) {
-      int s = map_spacetime_space_grid[map_output_loc_grid_grid[i]];
-      real r = space_grid_rates[s];
-      int l = map_output_loctime_loc[map_output_loc_grid_loc[i]];  // which space location period we are in
-      if (check_done[s, l] == 0) {
-        for (j in 1:N_cat) {
-          if (r >= risk_cat_low[j] && r < risk_cat_high[j]) {
-            location_risk_cat_num[l, j] += pop[map_output_loc_grid_grid[i]] * map_loc_grid_sfrac_output[i]; 
-          }
-        }
-        check_done[s, l] = 1;
-      }
-    }
-    
-    // Compute proportions
-    for (i in 1:L_output_space) {
-      for (j in 1:N_cat) {
-        location_risk_cat_prop[i, j] = location_risk_cat_num[i, j]/pop_loc_output[i];
-      }
-    }
-    
-    // Determine risk category for each output location
-    // Initialize to lowest risk category
-    for (i in 1:L_output_space) {
-      location_risk_cat[i] = 1;
-    }
-    
-    // This algorithm assumes that risk categories are mutually exclusive and sorted
-    // in increasing order
-    for (i in 1:L_output_space) {
-      for (j in 1:N_cat) {
-        if (location_risk_cat_num[i, j] > 1e5 || location_risk_cat_prop[i, j] > .1) {
-          location_risk_cat[i] = j;
-        }
-      }
-    }
-  }
-  // --- End Part D ---
-  
-  // ---- Part E: Total population at risk ----
-  
-  // Initialize
-  for (i in 1:N_cat) {
-    for (j in 1:N_output_adminlev) {
-      tot_pop_risk[i, j] = 0;
-    }
-  } 
-  
-  // Sum over locations
-  for (i in 1:L_output_space) {
-    int j = location_risk_cat[i];
-    int k = map_output_loc_adminlev[i] + 1;
-    tot_pop_risk[j, k] += pop_loc_output[i];
-  }
-  // ---  End Part E ---
-  
-  
-}
-
-
 
 model {
-  
+  // add from generate
+  real log_lik[M]; // log-likelihood of observations
   // ---- 1. Spatial prior ----
   {
     // DAGAR prior on random effects
@@ -741,5 +570,180 @@ model {
     }
     
     
+}
+
+
+generated quantities {
+   // This block is from generate stan model
+   vector[N_space] space_grid_rates; // mean annual incidence rates at grid level
+   
+  // Outputs at given admin levels
+  vector<lower=0>[L_output] location_cases_output; //cases modeled in each (temporal) location.
+  vector<lower=0>[L_output] location_rates_output; //rates modeled in each (temporal) location.
+  vector<lower=0>[L_output_space] location_total_cases_output; //cases modeled in each location across time slices.
+  vector<lower=0>[L_output_space] location_total_rates_output; //rates modeled in each location  across time slices.
+  matrix<lower=0>[L_output_space, N_cat] location_risk_cat_num;    // number of people in each location in each risk category
+  matrix<lower=0>[L_output_space, N_cat] location_risk_cat_prop;    // proportion of people in each location in each risk category
+  int<lower=0> location_risk_cat[L_output_space] ;    // risk category for each space location
+  matrix<lower=0>[N_cat, N_output_adminlev] tot_pop_risk;    // total number of people in admin units in each risk category by admin level
+  
+  // Data outputs to return (same for all samples)
+  real <lower=0> pop_loctimes_output[L_output];    // population in each output location period
+  real <lower=0> pop_loc_output[L_output_space];   // population in each output location (space only)
+  
+  for (i in 1:L_output) {
+    pop_loctimes_output[i] = 0;
   }
+  
+  for (i in 1:K2_output) {
+    pop_loctimes_output[map_output_loc_grid_loc[i]] += pop[map_output_loc_grid_grid[i]] * map_loc_grid_sfrac_output[i];
+  }
+  
+  // B.2: Modeled cases accounting for tfrac (for reporting)
+  for (i in 1:M) {
+    tfrac_modeled_cases[i] = 0;
+  }
+  //now accumulate
+  for (i in 1:K1) {
+    tfrac_modeled_cases[map_obs_loctime_obs[i]] += tfrac[i] * location_cases[map_obs_loctime_loc[i]];
+  }
+  // ---  End Part B ---
+  
+  // ---- Part C: Modeled number of cases for output summary location-periods ----
+  
+  for(i in 1:L_output){
+    location_cases_output[i] = 0;
+  }
+  
+  for(i in 1:L_output_space){
+    location_total_cases_output[i] = 0;
+  }
+  
+  for(i in 1:K2_output){
+    location_cases_output[map_output_loc_grid_loc[i]] += grid_cases[map_output_loc_grid_grid[i]] * map_loc_grid_sfrac_output[i];
+  }
+  
+  {
+    // This block computes the total cases and mean rates across time
+    real tot_loc_pop[L_output_space]; // store the total exposed population across time slices
+    
+    for (i in 1:L_output_space) {
+      tot_loc_pop[i] = 0;
+    }
+    
+    // Compute total cases and total exposed population
+    for (i in 1:L_output) {
+      location_total_cases_output[map_output_loctime_loc[i]] += location_cases_output[i];
+      tot_loc_pop[map_output_loctime_loc[i]] += pop_loctimes_output[i];
+    }
+    
+    // Compute mean rates at each location
+    for (i in 1:L_output_space) {
+      location_total_rates_output[i] = location_total_cases_output[i]/tot_loc_pop[i];
+    }
+    
+    // Compute average population in each output location (space only)
+    for (i in 1:L_output_space) {
+      pop_loc_output[i] = tot_loc_pop[i]/T;
+    }
+  }
+  
+  for(i in 1:L_output){
+    location_rates_output[i] = location_cases_output[i]/pop_loctimes_output[i];
+  }
+  // ---  End Part C ---
+  
+  // ---- Part D: People at risk ----
+  // This block computes the number of people at risk
+  
+  // First comput mean rates at grid level
+  for (i in 1:N_space) {
+    space_grid_rates[i] = 0;
+  }
+  
+  for (i in 1:N) {
+    //  We know that there are T time slices
+    space_grid_rates[map_spacetime_space_grid[i]] += exp(log_lambda[i])/T;
+  }
+  
+  {
+    // Loop over space output locations and compute numbers at risk
+    // Since there are T pixel/location intersections in K2_output we only add in the first.
+    int check_done[N_space, L_output_space];
+    
+    for (i in 1:N_space) {
+      for (j in 1:L_output_space) {
+        check_done[i, j] = 0;
+      }
+    }
+    
+    // Initialize risk cat num
+    for (i in 1:L_output_space) {
+      for (j in 1:N_cat) {
+        location_risk_cat_num[i, j] = 0;
+      }
+    }
+    
+    for (i in 1:K2_output) {
+      int s = map_spacetime_space_grid[map_output_loc_grid_grid[i]];
+      real r = space_grid_rates[s];
+      int l = map_output_loctime_loc[map_output_loc_grid_loc[i]];  // which space location period we are in
+      if (check_done[s, l] == 0) {
+        for (j in 1:N_cat) {
+          if (r >= risk_cat_low[j] && r < risk_cat_high[j]) {
+            location_risk_cat_num[l, j] += pop[map_output_loc_grid_grid[i]] * map_loc_grid_sfrac_output[i]; 
+          }
+        }
+        check_done[s, l] = 1;
+      }
+    }
+    
+    // Compute proportions
+    for (i in 1:L_output_space) {
+      for (j in 1:N_cat) {
+        location_risk_cat_prop[i, j] = location_risk_cat_num[i, j]/pop_loc_output[i];
+      }
+    }
+    
+    // Determine risk category for each output location
+    // Initialize to lowest risk category
+    for (i in 1:L_output_space) {
+      location_risk_cat[i] = 1;
+    }
+    
+    // This algorithm assumes that risk categories are mutually exclusive and sorted
+    // in increasing order
+    for (i in 1:L_output_space) {
+      for (j in 1:N_cat) {
+        if (location_risk_cat_num[i, j] > 1e5 || location_risk_cat_prop[i, j] > .1) {
+          location_risk_cat[i] = j;
+        }
+      }
+    }
+  }
+  // --- End Part D ---
+  
+  // ---- Part E: Total population at risk ----
+  
+  // Initialize
+  for (i in 1:N_cat) {
+    for (j in 1:N_output_adminlev) {
+      tot_pop_risk[i, j] = 0;
+    }
+  } 
+  
+  // Sum over locations
+  for (i in 1:L_output_space) {
+    int j = location_risk_cat[i];
+    int k = map_output_loc_adminlev[i] + 1;
+    tot_pop_risk[j, k] += pop_loc_output[i];
+  }
+  // ---  End Part E ---
+  
+  
+}
+
+
+
+
 }
